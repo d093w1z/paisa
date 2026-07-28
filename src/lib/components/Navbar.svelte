@@ -119,6 +119,7 @@
       href: "/more",
       children: [
         { label: "Configuration", href: "/config", help: "config" },
+        { label: "History", href: "/history", help: "git-history" },
         { label: "Sheets", href: "/sheets", help: "sheets", disablePreload: true },
         { label: "Goals", href: "/goals", help: "goals" },
         { label: "Doctor", href: "/doctor" },

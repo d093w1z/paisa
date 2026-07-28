@@ -125,6 +125,31 @@ type CreditCard struct {
 	ExpirationDate  string `json:"expiration_date" yaml:"expiration_date"`
 }
 
+type GitRemote struct {
+	Provider string `json:"provider" yaml:"provider"`
+	URL      string `json:"url" yaml:"url"`
+	Branch   string `json:"branch" yaml:"branch"`
+	Name     string `json:"name" yaml:"name"`
+}
+
+type GitHistory struct {
+	Enabled     BoolType  `json:"enabled" yaml:"enabled"`
+	AutoInit    BoolType  `json:"auto_init" yaml:"auto_init"`
+	AutoPush    BoolType  `json:"auto_push" yaml:"auto_push"`
+	AuthorName  string    `json:"author_name" yaml:"author_name"`
+	AuthorEmail string    `json:"author_email" yaml:"author_email"`
+	Remote      GitRemote `json:"remote" yaml:"remote"`
+
+	// RepoMode records the user's (or an unambiguous auto-resolved) choice
+	// of which local repository backs git history: "existing" to reuse an
+	// already-detected ancestor repository, or "new" for one created just
+	// for the ledger files. Empty means the choice hasn't been made yet, in
+	// which case no commits are made until it is (except when AutoInit is
+	// enabled and no ancestor repository exists at all, the only case where
+	// there's nothing to actually choose between).
+	RepoMode string `json:"repo_mode" yaml:"repo_mode"`
+}
+
 type Config struct {
 	JournalPath                string       `json:"journal_path" yaml:"journal_path"`
 	DBPath                     string       `json:"db_path" yaml:"db_path"`
@@ -157,6 +182,8 @@ type Config struct {
 	UserAccounts []UserAccount `json:"user_accounts" yaml:"user_accounts"`
 
 	CreditCards []CreditCard `json:"credit_cards" yaml:"credit_cards"`
+
+	GitHistory GitHistory `json:"git_history" yaml:"git_history"`
 }
 
 var config Config
@@ -183,6 +210,14 @@ var defaultConfig = Config{
 	Goals:                      Goals{Retirement: []RetirementGoal{}, Savings: []SavingsGoal{}},
 	UserAccounts:               []UserAccount{},
 	CreditCards:                []CreditCard{},
+	GitHistory: GitHistory{
+		Enabled:     No,
+		AutoInit:    No,
+		AutoPush:    No,
+		AuthorName:  "Paisa",
+		AuthorEmail: "paisa@localhost",
+		Remote:      GitRemote{Name: "origin", Branch: "main"},
+	},
 }
 
 var itemsUniquePropertiesMeta = jsonschema.MustCompileString("itemsUniqueProperties.json", `{

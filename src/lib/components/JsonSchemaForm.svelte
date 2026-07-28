@@ -20,6 +20,7 @@
   export let rawValue: string = "";
   export let schema: Schema;
   export let depth: number = 0;
+  export let path: string = key;
   export let required = false;
   export let deletable: () => void = null;
   export let disabled: boolean = false;
@@ -136,11 +137,11 @@
       <div class="field">
         <div class="control">
           <label class="radio">
-            <input value="yes" bind:group={value} type="radio" name="yes" />
+            <input value="yes" bind:group={value} type="radio" name={path} />
             Yes
           </label>
           <label class="radio">
-            <input value="no" bind:group={value} type="radio" name="no" />
+            <input value="no" bind:group={value} type="radio" name={path} />
             No
           </label>
         </div>
@@ -252,6 +253,7 @@
         required={_.includes(schema.required || [], key)}
         depth={depth + 1}
         {key}
+        path={`${path}.${key}`}
         bind:value={value[key]}
         schema={subSchema}
         disabled={true}
@@ -280,6 +282,7 @@
           required={_.includes(schema.required || [], key)}
           depth={depth + 1}
           {key}
+          path={`${path}.${key}`}
           bind:value={value[key]}
           schema={subSchema}
         />
@@ -318,6 +321,7 @@
           }}
           depth={depth + 1}
           key=""
+          path={`${path}[${i}]`}
           bind:value={value[i]}
           schema={schema.items}
         />

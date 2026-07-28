@@ -9,6 +9,8 @@
   export let oldFiles: LedgerFile[] = [];
   export let newFiles: LedgerFile[] = [];
   export let updatedTransactionsCount = 0;
+  export let readonly = false;
+  export let saveLabel = "Save All";
   let changedOldFiles: LedgerFile[] = [];
   let changedNewFiles: LedgerFile[] = [];
   let selectedFileIndex = 0;
@@ -101,10 +103,10 @@
   </div>
   <svelte:fragment slot="foot" let:close>
     <button class="button" on:click={(e) => close(e)}>Cancel</button>
-    {#if changedOldFiles.length > 0}
+    {#if changedOldFiles.length > 0 && !readonly}
       <button
         class="button is-success"
-        on:click={(e) => dispatch("save", changedNewFiles) && close(e)}>Save All</button
+        on:click={(e) => dispatch("save", changedNewFiles) && close(e)}>{saveLabel}</button
       >
     {/if}
   </svelte:fragment>

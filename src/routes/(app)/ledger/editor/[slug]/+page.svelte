@@ -8,7 +8,7 @@
     updateContent
   } from "$lib/editor";
   import { insertTab } from "@codemirror/commands";
-  import { ajax, buildDirectoryTree, type LedgerFile } from "$lib/utils";
+  import { ajax, buildDirectoryTree, type GitCommitInfo, type LedgerFile } from "$lib/utils";
   import { redo, undo } from "@codemirror/commands";
   import type { KeyBinding } from "@codemirror/view";
   import * as toast from "bulma-toast";
@@ -20,6 +20,9 @@
   import type { PageData } from "./$types";
   import FileTree from "$lib/components/FileTree.svelte";
   import FileModal from "$lib/components/FileModal.svelte";
+  import Modal from "$lib/components/Modal.svelte";
+  import DiffViewModal from "$lib/components/DiffViewModal.svelte";
+  import { relativeCommitTime, shortHash } from "$lib/git";
   import { page } from "$app/stores";
 
   export let data: PageData;
@@ -32,6 +35,18 @@
   let payees: string[] = [];
   let selectedVersion: string = null;
   let lineNumber = 0;
+
+  let fileCommits: GitCommitInfo[] = [];
+
+  let historyModalOpen = false;
+  let historyLoading = false;
+
+  let diffOpen = false;
+  let diffOldFiles: LedgerFile[] = [];
+  let diffNewFiles: LedgerFile[] = [];
+
+  let commitMessageModalOpen = false;
+  let commitMessage = "";
 
   function command(fn: Function) {
     return () => {
@@ -127,11 +142,15 @@
     selectedFile.versions = file.versions;
   }
 
-  async function save() {
+  async function save(commitMessageOverride = "") {
     const doc = editor.state.doc;
     const { errors, saved, file, message } = await ajax("/api/editor/save", {
       method: "POST",
-      body: JSON.stringify({ name: selectedFile.name, content: doc.toString() }),
+      body: JSON.stringify({
+        name: selectedFile.name,
+        content: doc.toString(),
+        message: commitMessageOverride
+      }),
       background: true
     });
 
@@ -153,7 +172,73 @@
       selectedFile = file;
       selectedVersion = null;
       $editorState = _.assign({}, $editorState, { hasUnsavedChanges: false });
+
+      if (file.git_enabled) {
+        await loadFileHistory();
+      }
     }
+  }
+
+  function openCommitMessageModal() {
+    commitMessage = "";
+    commitMessageModalOpen = true;
+  }
+
+  async function saveWithMessage() {
+    commitMessageModalOpen = false;
+    await save(commitMessage);
+  }
+
+  async function loadFileHistory() {
+    if (!selectedFile?.git_enabled) {
+      fileCommits = [];
+      return;
+    }
+
+    ({ commits: fileCommits } = await ajax(
+      `/api/git/history?file=${encodeURIComponent(selectedFile.name)}`
+    ));
+  }
+
+  function openHistory() {
+    historyModalOpen = true;
+    historyLoading = true;
+    loadFileHistory().finally(() => {
+      historyLoading = false;
+    });
+  }
+
+  async function viewHistoryDiff(commit: GitCommitInfo) {
+    const old = await ajax(
+      `/api/git/content?file=${encodeURIComponent(selectedFile.name)}&commit=${commit.hash}`
+    );
+
+    if (old.error) {
+      toast.toast({ message: old.error, type: "is-danger" });
+      return;
+    }
+
+    diffOldFiles = [
+      { type: "file", name: selectedFile.name, content: editor.state.doc.toString(), versions: [] }
+    ];
+    diffNewFiles = [{ type: "file", name: selectedFile.name, content: old.content, versions: [] }];
+    historyModalOpen = false;
+    diffOpen = true;
+  }
+
+  function restoreFromDiff(files: LedgerFile[]) {
+    updateContent(editor, files[0].content);
+    diffOpen = false;
+    toast.toast({
+      message: "Loaded the historical version into the editor — review and Save to keep it",
+      type: "is-info"
+    });
+  }
+
+  let lastHistoryFileName: string = null;
+  $: if (selectedFile && selectedFile.name !== lastHistoryFileName) {
+    lastHistoryFileName = selectedFile.name;
+    loadFileHistory();
   }
 
   $: if (selectedFile) {
@@ -319,6 +404,38 @@
             </div>
           {/if}
 
+          {#if selectedFile?.git_enabled}
+            <div class="field has-addons ml-5 mb-0">
+              <p class="control">
+                <button
+                  class="button is-small"
+                  disabled={!$editorState.hasUnsavedChanges}
+                  on:click={(_e) => openCommitMessageModal()}
+                >
+                  <span class="icon is-small">
+                    <i class="fas fa-pen-to-square" />
+                  </span>
+                  <span>Save with message</span>
+                </button>
+              </p>
+              <p class="control">
+                <button class="button is-small" on:click={(_e) => openHistory()}>
+                  <span class="icon is-small">
+                    <i class="fas fa-clock-rotate-left" />
+                  </span>
+                  <span>History</span>
+                </button>
+              </p>
+            </div>
+
+            {#if !_.isEmpty(fileCommits)}
+              <div class="ml-3 is-size-7 has-text-grey">
+                Last commit: <code>{shortHash(fileCommits[0].hash)}</code>
+                {fileCommits[0].message} ({relativeCommitTime(fileCommits[0].when)})
+              </div>
+            {/if}
+          {/if}
+
           {#if $editorState.errors.length > 0}
             <div class="control ml-5">
               <a on:click={(_e) => moveToLine(editor, $editorState.errors[0].line_from)}
@@ -358,3 +475,72 @@
     </div>
   </div>
 </section>
+
+<Modal bind:active={commitMessageModalOpen} width="min(520px, 100vw)">
+  <svelte:fragment slot="head" let:close>
+    <p class="modal-card-title">Commit message</p>
+    <button class="delete" aria-label="close" on:click={(e) => close(e)} />
+  </svelte:fragment>
+  <div slot="body">
+    <div class="field">
+      <div class="control">
+        <textarea
+          class="textarea"
+          rows="3"
+          placeholder={`paisa: update ${selectedFile?.name}`}
+          bind:value={commitMessage}
+        />
+      </div>
+    </div>
+  </div>
+  <svelte:fragment slot="foot" let:close>
+    <button class="button" on:click={(e) => close(e)}>Cancel</button>
+    <button class="button is-success" on:click={() => saveWithMessage()}>Save</button>
+  </svelte:fragment>
+</Modal>
+
+<Modal bind:active={historyModalOpen} width="min(700px, 100vw)">
+  <svelte:fragment slot="head" let:close>
+    <p class="modal-card-title">History — {selectedFile?.name}</p>
+    <button class="delete" aria-label="close" on:click={(e) => close(e)} />
+  </svelte:fragment>
+  <div slot="body">
+    {#if historyLoading}
+      <p>Loading...</p>
+    {:else if _.isEmpty(fileCommits)}
+      <p>No history yet for {selectedFile?.name}.</p>
+    {:else}
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Commit</th>
+            <th>Message</th>
+            <th>Author</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each fileCommits as commit}
+            <tr class="is-clickable" on:click={() => viewHistoryDiff(commit)}>
+              <td><code>{shortHash(commit.hash)}</code></td>
+              <td>{commit.message}</td>
+              <td>{commit.author}</td>
+              <td>{relativeCommitTime(commit.when)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+  </div>
+  <svelte:fragment slot="foot" let:close>
+    <button class="button" on:click={(e) => close(e)}>Close</button>
+  </svelte:fragment>
+</Modal>
+
+<DiffViewModal
+  bind:open={diffOpen}
+  oldFiles={diffOldFiles}
+  newFiles={diffNewFiles}
+  saveLabel="Restore this version"
+  on:save={(e) => restoreFromDiff(e.detail)}
+/>
