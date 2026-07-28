@@ -38,7 +38,21 @@
       "savings": []
     },
     "user_accounts": [],
-    "credit_cards": []
+    "credit_cards": [],
+    "git_history": {
+      "enabled": "no",
+      "auto_init": "no",
+      "auto_push": "no",
+      "author_name": "Paisa",
+      "author_email": "paisa@localhost",
+      "remote": {
+        "provider": "",
+        "url": "",
+        "branch": "main",
+        "name": "origin"
+      },
+      "repo_mode": ""
+    }
   },
   "now": "2022-02-07T00:00:00Z",
   "schema": {
@@ -326,6 +340,88 @@
         "maximum": 12,
         "minimum": 1,
         "type": "integer"
+      },
+      "git_history": {
+        "additionalProperties": false,
+        "description": "Git based version history for the journal directory. The auth token itself is never stored here, it is kept in the OS keychain (or an encrypted fallback file)",
+        "properties": {
+          "author_email": {
+            "description": "Email recorded as the commit author for Paisa generated commits",
+            "format": "email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Name recorded as the commit author for Paisa generated commits",
+            "type": "string"
+          },
+          "auto_init": {
+            "description": "Automatically initialize a git repository in the journal directory if none is detected",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ],
+            "type": "string",
+            "ui:widget": "boolean"
+          },
+          "auto_push": {
+            "description": "Automatically push commits to the configured remote after each sync",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ],
+            "type": "string",
+            "ui:widget": "boolean"
+          },
+          "enabled": {
+            "description": "Enable git based version history for the journal",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ],
+            "type": "string",
+            "ui:widget": "boolean"
+          },
+          "remote": {
+            "additionalProperties": false,
+            "description": "Non secret remote metadata, set from the History page, not edited here",
+            "properties": {
+              "branch": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "enum": [
+                  "",
+                  "github",
+                  "gitlab",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "ui:widget": "hidden"
+          },
+          "repo_mode": {
+            "description": "Which local repository backs git history: set from the History page, not edited here",
+            "enum": [
+              "",
+              "existing",
+              "new"
+            ],
+            "type": "string",
+            "ui:widget": "hidden"
+          }
+        },
+        "type": "object"
       },
       "goals": {
         "description": "Goals configuration",
