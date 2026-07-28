@@ -5,7 +5,7 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-FROM golang:1.24-alpine3.21 AS go
+FROM golang:1.25-alpine3.21 AS go
 WORKDIR /usr/src/paisa
 RUN apk --no-cache add sqlite gcc g++
 COPY go.mod go.sum ./
