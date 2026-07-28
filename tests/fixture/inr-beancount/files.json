@@ -38,7 +38,9 @@
       "name": "journals/2022/bank/checking.beancount",
       "content": "1970-01-01 open Assets:Checking\n",
       "versions": [],
-      "operation": ""
+      "operation": "",
+      "git_enabled": false,
+      "message": ""
     }
   ],
   "payees": [
