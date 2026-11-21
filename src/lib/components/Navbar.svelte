@@ -109,6 +109,7 @@
       children: [
         { label: "Import", href: "/import", help: "import" },
         { label: "Editor", href: "/editor", help: "editor", disablePreload: true },
+        { label: "Review", href: "/review" },
         { label: "Transactions", href: "/transaction", help: "bulk-edit" },
         { label: "Postings", href: "/posting" },
         { label: "Price", href: "/price" }

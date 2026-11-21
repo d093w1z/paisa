@@ -41,6 +41,8 @@ func Build(db *gorm.DB, enableCompression bool) *gin.Engine {
 
 	router.Use(TokenAuthMiddleware())
 
+	registerLedgerWriterProxy(router)
+
 	router.GET("/robots.txt", func(c *gin.Context) {
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("User-agent: *\nDisallow: /"))
 	})

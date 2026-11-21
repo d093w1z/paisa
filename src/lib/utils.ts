@@ -575,6 +575,38 @@ export interface SheetLineResult {
 
 const tokenKey = "token";
 
+// ledger-writer review queue, proxied by /api/writer (internal/server/ledger_writer.go)
+export interface ReviewGroup {
+  payee_raw: string;
+  id: number;
+  count: number;
+  total: string;
+  reason: string;
+  ids: number[];
+  accounts: string[];
+}
+
+export interface ReviewItem {
+  id: number;
+  reason: string;
+  date: string | null;
+  amount: string | false;
+  account: string | null;
+  category: string | null;
+  payee: string | null;
+  payee_raw: string | null;
+  status: string | null;
+  raw: string | null;
+}
+
+export type WriterError = { error: string };
+export type ReviewResult = {
+  resolved: number[];
+  account?: string;
+  rule?: object | null;
+  voided?: boolean;
+};
+
 type RequestOptions = RequestInit & {
   background?: boolean;
 };
@@ -867,6 +899,24 @@ export function ajax(
   route: "/api/git/disconnect",
   options?: RequestOptions
 ): Promise<{ success: boolean; message?: string }>;
+
+export function ajax(
+  route: "/api/writer/review?group=payee",
+  options?: RequestOptions
+): Promise<ReviewGroup[] | WriterError>;
+export function ajax(
+  route: "/api/writer/review",
+  options?: RequestOptions
+): Promise<ReviewItem[] | ReviewResult | WriterError>;
+export function ajax(
+  route: "/api/writer/review/:id",
+  options?: RequestOptions,
+  params?: Record<string, string>
+): Promise<ReviewResult | WriterError>;
+export function ajax(
+  route: "/api/writer/accounts",
+  options?: RequestOptions
+): Promise<string[] | WriterError>;
 
 export async function ajax(
   route: string,
