@@ -286,7 +286,7 @@
 
       {#if picked.length}
         <div class="box py-2 px-3 mb-3">
-          <div class="field is-grouped is-align-items-center">
+          <div class="field is-grouped is-grouped-multiline is-align-items-center">
             <p class="control">
               <strong>{picked.length}</strong> groups, {_.sumBy(picked, (r) => r.count)} transactions
             </p>
@@ -316,7 +316,7 @@
         <div class="notification is-success is-light">Nothing to review. 🎉</div>
       {/if}
 
-      <table class="table is-fullwidth is-narrow is-hoverable">
+      <table class="table is-fullwidth is-narrow is-hoverable stack">
         <thead>
           <tr>
             <th
@@ -352,20 +352,28 @@
                   >
                 </button>
               </td>
-              <td>
+              <td class="grow">
                 <strong>{row.payee_raw || "—"}</strong>
                 {#if row.reason !== "uncategorized"}<span class="tag is-warning is-light ml-1"
                     >{row.reason}</span
                   >{/if}
                 <br /><span class="is-size-7 has-text-grey">{row.accounts.join(", ")}</span>
               </td>
-              <td class="has-text-right">{row.count}</td>
+              <td class="has-text-right"
+                >{row.count}<span class="is-hidden-tablet has-text-grey"> txns</span></td
+              >
               <td class="has-text-right is-family-monospace"
                 >{formatCurrency(Number(row.total), 2)}</td
               >
               {#if row.reason === "uncategorized"}
-                <td><input class="input is-small" bind:value={row.name} /></td>
-                <td>
+                <td class="full"
+                  ><input
+                    class="input is-small"
+                    placeholder="Name to show"
+                    bind:value={row.name}
+                  /></td
+                >
+                <td class="full">
                   <input
                     class="input is-small"
                     list="review-categories"
@@ -374,8 +382,12 @@
                     on:keydown={(e) => e.key === "Enter" && saveGroup(row)}
                   />
                 </td>
-                <td class="has-text-centered"><input type="checkbox" bind:checked={row.learn} /></td
-                >
+                <td class="has-text-centered">
+                  <label class="checkbox is-size-7"
+                    ><input type="checkbox" bind:checked={row.learn} />
+                    <span class="is-hidden-tablet">Learn</span></label
+                  >
+                </td>
                 <td>
                   <button
                     class="button is-small is-link"
@@ -385,14 +397,14 @@
                   >
                 </td>
               {:else}
-                <td colspan="4" class="is-size-7">Expand to retry or dismiss</td>
+                <td colspan="4" class="is-size-7 full">Expand to retry or dismiss</td>
               {/if}
             </tr>
             {#if row.open}
               {#each itemsOf(row) as item (item.id)}
                 <tr class="has-background-white-ter is-size-7">
-                  <td />
-                  <td colspan="2"
+                  <td class="is-hidden-mobile" />
+                  <td colspan="2" class="grow"
                     >{item.date || ""} · {item.account || ""}<br /><span class="has-text-grey"
                       >{item.raw || ""}</span
                     ></td
@@ -401,7 +413,7 @@
                     >{item.amount ? formatCurrency(Number(item.amount), 2) : ""}</td
                   >
                   {#if item.reason === "unknown_account"}
-                    <td colspan="3"
+                    <td colspan="3" class="full"
                       >Add this card/account to <code>accounts.yaml</code>, then retry.</td
                     >
                     <td>
@@ -414,7 +426,7 @@
                       >
                     </td>
                   {:else}
-                    <td colspan="2">
+                    <td colspan="2" class="full">
                       <input
                         class="input is-small"
                         list="review-categories"
@@ -423,7 +435,7 @@
                         bind:value={itemCategory[item.id]}
                       />
                     </td>
-                    <td />
+                    <td class="is-hidden-mobile" />
                     <td
                       ><button
                         class="button is-small"
@@ -474,7 +486,7 @@
         <div class="notification is-light">No transactions match.</div>
       {:else}
         <div class="box py-2 px-3 mb-3">
-          <div class="field is-grouped is-align-items-center">
+          <div class="field is-grouped is-grouped-multiline is-align-items-center">
             <p class="control">
               <strong>{pickedTxns}</strong> of {found.length} ticked, total
               {formatCurrency(
@@ -505,7 +517,7 @@
             </p>
           </div>
         </div>
-        <table class="table is-fullwidth is-narrow is-hoverable is-size-7">
+        <table class="table is-fullwidth is-narrow is-hoverable is-size-7 stack">
           <thead>
             <tr>
               <th
@@ -531,13 +543,13 @@
               <tr>
                 <td><input type="checkbox" bind:checked={pick[t.id]} /></td>
                 <td>{t.date}</td>
-                <td title={t.raw || ""}>{t.payee}</td>
-                <td>{t.account}</td>
+                <td class="grow" title={t.raw || ""}>{t.payee}</td>
+                <td class="is-hidden-mobile">{t.account}</td>
                 <td class="has-text-right is-family-monospace"
                   >{formatCurrency(Number(t.amount), 2)}</td
                 >
-                <td>{t.category}</td>
-                <td>
+                <td class="full has-text-grey">{t.category}</td>
+                <td class="full">
                   <input
                     class="input is-small"
                     list="review-categories"
@@ -553,3 +565,33 @@
     {/if}
   </div>
 </section>
+
+<style>
+  /* Phones: each table row becomes a stacked card instead of overflowing sideways. */
+  @media screen and (max-width: 768px) {
+    .stack thead {
+      display: none;
+    }
+    .stack tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.25rem 0.5rem;
+      padding: 0.5rem 0;
+      border-bottom: var(--border, 1px solid #dbdbdb);
+    }
+    .stack td {
+      display: block;
+      border: none !important;
+      padding: 0.1rem 0.25rem !important;
+    }
+    .stack td.grow {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .stack td.full {
+      flex: 1 1 100%;
+    }
+  }
+</style>
