@@ -20,7 +20,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ananthakumaran/paisa
+          images: ${{ vars.DOCKERHUB_IMAGE || format('{0}/paisa', github.repository_owner) }}
       - uses: docker/build-push-action@v5
         with:
           context: .
@@ -29,10 +29,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=paisa-docker
+          cache-to: type=gha,mode=max,scope=paisa-docker
       - id: meta-hledger
         uses: docker/metadata-action@v5
         with:
-          images: ananthakumaran/paisa
+          images: ${{ vars.DOCKERHUB_IMAGE || format('{0}/paisa', github.repository_owner) }}
           flavor: |
             latest=auto
             prefix=
@@ -45,10 +47,12 @@ jobs:
           push: true
           tags: ${{ steps.meta-hledger.outputs.tags }}
           labels: ${{ steps.meta-hledger.outputs.labels }}
+          cache-from: type=gha,scope=paisa-docker
+          cache-to: type=gha,mode=max,scope=paisa-docker
       - id: meta-beancount
         uses: docker/metadata-action@v5
         with:
-          images: ananthakumaran/paisa
+          images: ${{ vars.DOCKERHUB_IMAGE || format('{0}/paisa', github.repository_owner) }}
           flavor: |
             latest=auto
             prefix=
@@ -61,10 +65,12 @@ jobs:
           push: true
           tags: ${{ steps.meta-beancount.outputs.tags }}
           labels: ${{ steps.meta-beancount.outputs.labels }}
+          cache-from: type=gha,scope=paisa-docker
+          cache-to: type=gha,mode=max,scope=paisa-docker
       - id: meta-all
         uses: docker/metadata-action@v5
         with:
-          images: ananthakumaran/paisa
+          images: ${{ vars.DOCKERHUB_IMAGE || format('{0}/paisa', github.repository_owner) }}
           flavor: |
             latest=auto
             prefix=
@@ -77,3 +83,5 @@ jobs:
           push: true
           tags: ${{ steps.meta-all.outputs.tags }}
           labels: ${{ steps.meta-all.outputs.labels }}
+          cache-from: type=gha,scope=paisa-docker
+          cache-to: type=gha,mode=max,scope=paisa-docker

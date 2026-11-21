@@ -40,7 +40,21 @@
       "savings": []
     },
     "user_accounts": [],
-    "credit_cards": []
+    "credit_cards": [],
+    "git_history": {
+      "enabled": "no",
+      "auto_init": "no",
+      "auto_push": "no",
+      "author_name": "Paisa",
+      "author_email": "paisa@localhost",
+      "remote": {
+        "provider": "",
+        "url": "",
+        "branch": "main",
+        "name": "origin"
+      },
+      "repo_mode": ""
+    }
   },
   "now": "2022-02-07T00:00:00Z",
   "schema": {
@@ -1296,6 +1310,88 @@
         "maximum": 6,
         "minimum": 0,
         "type": "integer"
+      },
+      "git_history": {
+        "description": "Git based version history for the journal directory. The auth token itself is never stored here, it is kept in the OS keychain (or an encrypted fallback file)",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "ui:widget": "boolean",
+            "type": "string",
+            "description": "Enable git based version history for the journal",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ]
+          },
+          "auto_init": {
+            "ui:widget": "boolean",
+            "type": "string",
+            "description": "Automatically initialize a git repository in the journal directory if none is detected",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ]
+          },
+          "auto_push": {
+            "ui:widget": "boolean",
+            "type": "string",
+            "description": "Automatically push commits to the configured remote after each sync",
+            "enum": [
+              "",
+              "yes",
+              "no"
+            ]
+          },
+          "author_name": {
+            "type": "string",
+            "description": "Name recorded as the commit author for Paisa generated commits"
+          },
+          "author_email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email recorded as the commit author for Paisa generated commits"
+          },
+          "remote": {
+            "ui:widget": "hidden",
+            "type": "object",
+            "description": "Non secret remote metadata, set from the History page, not edited here",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "github",
+                  "gitlab",
+                  "other"
+                ]
+              },
+              "url": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "repo_mode": {
+            "ui:widget": "hidden",
+            "type": "string",
+            "description": "Which local repository backs git history: set from the History page, not edited here",
+            "enum": [
+              "",
+              "existing",
+              "new"
+            ]
+          }
+        },
+        "additionalProperties": false
       }
     },
     "required": [

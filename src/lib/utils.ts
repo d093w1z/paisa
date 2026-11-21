@@ -412,10 +412,45 @@ interface File {
   name: string;
   content: string;
   versions: string[];
+  git_enabled?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface LedgerFile extends File {}
+
+export interface GitCommitInfo {
+  hash: string;
+  author: string;
+  email: string;
+  when: string;
+  message: string;
+}
+
+export interface GitStatus {
+  enabled: boolean;
+  repo_detected?: boolean;
+  needs_setup?: boolean;
+  parent_repo_available?: boolean;
+  parent_repo_root?: string;
+  auto_init?: boolean;
+  repo_mode?: "" | "existing" | "new";
+  repo_root?: string;
+  remote_url?: string;
+  branch?: string;
+  ahead?: number;
+  behind?: number;
+  last_commit?: GitCommitInfo;
+  auth_connected?: boolean;
+  keyring_backend?: string;
+  error?: string;
+}
+
+export interface GitRemoteRepo {
+  name: string;
+  full_name: string;
+  clone_url: string;
+  private: boolean;
+}
 
 export interface Directory {
   type: "directory";
@@ -772,6 +807,69 @@ export function ajax(
 ): Promise<{ success: boolean; error?: string }>;
 
 export function ajax(route: "/api/ping"): Promise<{ success: boolean; error?: string }>;
+
+export function ajax(route: "/api/git/status"): Promise<GitStatus>;
+
+export function ajax(
+  route: "/api/git/init",
+  options?: RequestOptions
+): Promise<{ success: boolean; message?: string; repo_root?: string }>;
+
+export function ajax(route: `/api/git/history?file=${string}`): Promise<{
+  commits: GitCommitInfo[];
+}>;
+
+export function ajax(route: `/api/git/content?file=${string}&commit=${string}`): Promise<{
+  name?: string;
+  content?: string;
+  error?: string;
+}>;
+
+export function ajax(
+  route: "/api/git/push",
+  options?: RequestOptions
+): Promise<{ success: boolean; message?: string }>;
+
+export function ajax(
+  route: "/api/git/oauth/start",
+  options?: RequestOptions
+): Promise<{
+  session_id?: string;
+  user_code?: string;
+  verification_uri?: string;
+  interval?: number;
+  error?: string;
+}>;
+
+export function ajax(route: `/api/git/oauth/poll?session_id=${string}`): Promise<{
+  status: string;
+  message?: string;
+}>;
+
+export function ajax(
+  route: "/api/git/token/session",
+  options?: RequestOptions
+): Promise<{ session_id?: string; error?: string }>;
+
+export function ajax(route: `/api/git/repos?session_id=${string}`): Promise<{
+  repos?: GitRemoteRepo[];
+  error?: string;
+}>;
+
+export function ajax(
+  route: "/api/git/repos/select",
+  options?: RequestOptions
+): Promise<{ success: boolean; message?: string }>;
+
+export function ajax(
+  route: "/api/git/token",
+  options?: RequestOptions
+): Promise<{ success: boolean; message?: string }>;
+
+export function ajax(
+  route: "/api/git/disconnect",
+  options?: RequestOptions
+): Promise<{ success: boolean; message?: string }>;
 
 export async function ajax(
   route: string,

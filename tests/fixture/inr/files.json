@@ -35,7 +35,9 @@
       "name": "journals/2022/bank/checking.ledger",
       "content": "commodity INR 9,99,99,999.00\n",
       "versions": [],
-      "operation": ""
+      "operation": "",
+      "git_enabled": false,
+      "message": ""
     }
   ],
   "payees": [
