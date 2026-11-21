@@ -599,12 +599,25 @@ export interface ReviewItem {
   raw: string | null;
 }
 
+export interface WriterTxn {
+  id: number;
+  date: string;
+  amount: string;
+  account: string;
+  category: string;
+  payee: string;
+  payee_raw: string | null;
+  raw: string | null;
+  status: string;
+}
+
 export type WriterError = { error: string };
 export type ReviewResult = {
   resolved: number[];
   account?: string;
   rule?: object | null;
   rules?: object[];
+  recategorized?: number[];
   voided?: boolean;
 };
 
@@ -918,6 +931,11 @@ export function ajax(
   route: "/api/writer/review/batch",
   options?: RequestOptions
 ): Promise<ReviewResult | WriterError>;
+export function ajax(
+  route: "/api/writer/txns?q=:q&account=:account&date_from=:from&date_to=:to",
+  options?: RequestOptions,
+  params?: Record<string, string>
+): Promise<WriterTxn[] | WriterError>;
 export function ajax(
   route: "/api/writer/accounts",
   options?: RequestOptions

@@ -22,7 +22,7 @@ import (
 //
 //	LEDGER_WRITER_URL=http://192.168.1.101:8080
 //	LEDGER_WRITER_TOKEN=<WRITER_TOKEN>
-var ledgerWriterAllowed = regexp.MustCompile(`^(GET /review|POST /review(/[0-9]+|/batch)?|GET /accounts)$`)
+var ledgerWriterAllowed = regexp.MustCompile(`^(GET /review|POST /review(/[0-9]+|/batch)?|GET /accounts|GET /txns)$`)
 
 func registerLedgerWriterProxy(router *gin.Engine) {
 	base := os.Getenv("LEDGER_WRITER_URL")

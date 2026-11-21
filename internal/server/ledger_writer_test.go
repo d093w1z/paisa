@@ -49,9 +49,11 @@ func TestLedgerWriterProxy(t *testing.T) {
 	require.Equal(t, 200, do("POST", "/api/writer/review/42").StatusCode)
 	require.Equal(t, 200, do("POST", "/api/writer/review/batch").StatusCode)
 	require.Equal(t, 200, do("GET", "/api/writer/accounts").StatusCode)
+	require.Equal(t, 200, do("GET", "/api/writer/txns?q=zomato").StatusCode)
+	require.Equal(t, "q=zomato", got.URL.RawQuery)
 
 	for _, c := range [][2]string{{"POST", "/api/writer/txn"}, {"POST", "/api/writer/statement"},
-		{"GET", "/api/writer/health"}, {"DELETE", "/api/writer/review/1"}, {"POST", "/api/writer/review/1/../../txn"},
+		{"GET", "/api/writer/health"}, {"POST", "/api/writer/txns"}, {"DELETE", "/api/writer/review/1"}, {"POST", "/api/writer/review/1/../../txn"},
 		{"POST", "/api/writer/review/batchx"}} {
 		require.Equal(t, 404, do(c[0], c[1]).StatusCode, c)
 		require.Nil(t, got, c)

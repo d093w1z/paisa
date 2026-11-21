@@ -7,7 +7,8 @@
     type ReviewGroup,
     type ReviewItem,
     type ReviewResult,
-    type WriterError
+    type WriterError,
+    type WriterTxn
   } from "$lib/utils";
   import { toast } from "bulma-toast";
   import _ from "lodash";
@@ -190,6 +191,61 @@
     const on = !allPicked;
     selectable.forEach((r) => (selected[r.payee_raw] = on));
   }
+
+  // Find & re-categorize: any transaction, categorized or not (not hand-split ones).
+  let find = { q: "", account: "", from: "", to: "" };
+  let found: WriterTxn[] = [];
+  let searched = false;
+  let pick: Record<number, boolean> = {};
+  let newCategory: Record<number, string> = {};
+  let findCategory = "";
+  let findPayee = "";
+
+  async function search() {
+    const enc = (v: string) => encodeURIComponent(v.trim());
+    const res = await ajax(
+      "/api/writer/txns?q=:q&account=:account&date_from=:from&date_to=:to",
+      {},
+      { q: enc(find.q), account: enc(find.account), from: enc(find.from), to: enc(find.to) }
+    );
+    if (failed(res)) return notify(res.error, false);
+    found = res;
+    searched = true;
+    pick = {};
+    newCategory = {};
+  }
+
+  async function recategorize() {
+    const all = findCategory.trim();
+    const entries = found
+      .map((t) => ({ t, account: (newCategory[t.id] || "").trim() || (pick[t.id] ? all : "") }))
+      .filter((x) => x.account && x.account !== x.t.category);
+    if (entries.length === 0)
+      return notify("Tick rows and give a category (or type one per row)", false);
+    const isNew: Record<string, boolean> = {};
+    for (const a of _.uniq(entries.map((e) => e.account))) {
+      const n = confirmNew(a);
+      if (n === null) return;
+      isNew[a] = n;
+    }
+    const res = await ajax("/api/writer/review/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        items: entries.map((e) => ({
+          txn_id: e.t.id,
+          account: e.account,
+          payee: findPayee.trim() || undefined,
+          new_account: isNew[e.account]
+        }))
+      })
+    });
+    if (failed(res)) return notify(`Nothing saved: ${res.error}`, false);
+    notify(`${res.recategorized?.length ?? 0} transactions re-categorized`);
+    await Promise.all([search(), load()]);
+  }
+
+  $: pickedTxns = found.filter((t) => pick[t.id]).length;
+  $: allTxnsPicked = found.length > 0 && found.every((t) => pick[t.id]);
 
   onMount(load);
 </script>
@@ -381,6 +437,119 @@
           {/each}
         </tbody>
       </table>
+    {/if}
+
+    <h2 class="title is-5 mt-6" id="recategorize">Find &amp; re-categorize</h2>
+    <p class="is-size-7 has-text-grey mb-3">
+      Change the category of any transaction, including ones already categorized. Search by payee,
+      then tick rows and give one category, or type a category on individual rows.
+    </p>
+    <div class="field is-grouped is-grouped-multiline">
+      <p class="control is-expanded">
+        <input
+          class="input is-small"
+          placeholder="Payee or statement text (e.g. sanika, amazon)"
+          bind:value={find.q}
+          on:keydown={(e) => e.key === "Enter" && search()}
+        />
+      </p>
+      <p class="control">
+        <input
+          class="input is-small"
+          list="review-categories"
+          placeholder="Account or category"
+          bind:value={find.account}
+          on:keydown={(e) => e.key === "Enter" && search()}
+        />
+      </p>
+      <p class="control"><input class="input is-small" type="date" bind:value={find.from} /></p>
+      <p class="control"><input class="input is-small" type="date" bind:value={find.to} /></p>
+      <p class="control">
+        <button class="button is-small is-link" on:click={search}>Search</button>
+      </p>
+    </div>
+
+    {#if searched}
+      {#if found.length === 0}
+        <div class="notification is-light">No transactions match.</div>
+      {:else}
+        <div class="box py-2 px-3 mb-3">
+          <div class="field is-grouped is-align-items-center">
+            <p class="control">
+              <strong>{pickedTxns}</strong> of {found.length} ticked, total
+              {formatCurrency(
+                _.sumBy(
+                  found.filter((t) => pick[t.id]),
+                  (t) => Number(t.amount)
+                ),
+                2
+              )}
+            </p>
+            <p class="control is-expanded">
+              <input
+                class="input is-small"
+                list="review-categories"
+                placeholder="New category for ticked rows"
+                bind:value={findCategory}
+              />
+            </p>
+            <p class="control">
+              <input
+                class="input is-small"
+                placeholder="Rename payee (optional)"
+                bind:value={findPayee}
+              />
+            </p>
+            <p class="control">
+              <button class="button is-small is-link" on:click={recategorize}>Re-categorize</button>
+            </p>
+          </div>
+        </div>
+        <table class="table is-fullwidth is-narrow is-hoverable is-size-7">
+          <thead>
+            <tr>
+              <th
+                ><input
+                  type="checkbox"
+                  checked={allTxnsPicked}
+                  on:change={() => {
+                    const on = !allTxnsPicked;
+                    found.forEach((t) => (pick[t.id] = on));
+                  }}
+                /></th
+              >
+              <th>Date</th>
+              <th>Payee</th>
+              <th>Account</th>
+              <th class="has-text-right">Amount</th>
+              <th>Category</th>
+              <th>New category (this row)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each found as t (t.id)}
+              <tr>
+                <td><input type="checkbox" bind:checked={pick[t.id]} /></td>
+                <td>{t.date}</td>
+                <td title={t.raw || ""}>{t.payee}</td>
+                <td>{t.account}</td>
+                <td class="has-text-right is-family-monospace"
+                  >{formatCurrency(Number(t.amount), 2)}</td
+                >
+                <td>{t.category}</td>
+                <td>
+                  <input
+                    class="input is-small"
+                    list="review-categories"
+                    placeholder={pick[t.id] && findCategory ? findCategory : ""}
+                    bind:value={newCategory[t.id]}
+                  />
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
     {/if}
   </div>
 </section>
