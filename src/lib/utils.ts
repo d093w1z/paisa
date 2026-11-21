@@ -604,6 +604,7 @@ export type ReviewResult = {
   resolved: number[];
   account?: string;
   rule?: object | null;
+  rules?: object[];
   voided?: boolean;
 };
 
@@ -912,6 +913,10 @@ export function ajax(
   route: "/api/writer/review/:id",
   options?: RequestOptions,
   params?: Record<string, string>
+): Promise<ReviewResult | WriterError>;
+export function ajax(
+  route: "/api/writer/review/batch",
+  options?: RequestOptions
 ): Promise<ReviewResult | WriterError>;
 export function ajax(
   route: "/api/writer/accounts",

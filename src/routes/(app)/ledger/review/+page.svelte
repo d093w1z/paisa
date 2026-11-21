@@ -84,52 +84,72 @@
       : await ajax("/api/writer/review/:id", options, { id: String(id) });
   }
 
-  // Save all: rows given their own category (expanded view) are saved one by one, then the group
-  // category (if any) takes the rest, learning a rule when ticked.
-  async function saveGroup(row: Row) {
-    const account = row.category.trim();
-    const own = itemsOf(row)
-      .map((i) => ({ item: i, account: (itemCategory[i.id] || "").trim() }))
-      .filter((x) => x.account && x.item.reason === "uncategorized");
-    if (!account && own.length === 0) return notify("Pick a category first", false);
+  type Entry = {
+    id?: number;
+    payee_raw?: string;
+    account: string;
+    payee?: string;
+    make_rule?: boolean;
+    new_account?: boolean;
+  };
 
+  // A group's entries: rows given their own category (expanded view) first, then the group category
+  // (if any) for the rest. The writer applies them in order, in one commit.
+  function entriesFor(row: Row, account: string, learn: boolean): Entry[] {
+    const payee = row.name.trim() || undefined;
+    const own: Entry[] = itemsOf(row)
+      .filter((i) => i.reason === "uncategorized" && (itemCategory[i.id] || "").trim())
+      .map((i) => ({ id: i.id, account: itemCategory[i.id].trim(), payee }));
+    account = account.trim();
+    return account ? [...own, { payee_raw: row.payee_raw, account, payee, make_rule: learn }] : own;
+  }
+
+  async function runBatch(entries: Entry[], busy: string[]) {
+    if (entries.length === 0) return notify("Pick a category first", false);
     const isNew: Record<string, boolean> = {};
-    for (const a of _.uniq([...own.map((x) => x.account), ...(account ? [account] : [])])) {
+    for (const a of _.uniq(entries.map((e) => e.account))) {
       const n = confirmNew(a);
       if (n === null) return;
       isNew[a] = n;
     }
-    const payee = row.name.trim() || undefined;
-    saving[row.payee_raw] = true;
+    busy.forEach((k) => (saving[k] = true));
     try {
-      for (const x of own) {
-        const res = await post(
-          "/api/writer/review/:id",
-          { account: x.account, payee, new_account: isNew[x.account] },
-          x.item.id
-        );
-        if (failed(res)) return notify(`${x.item.date} ${x.item.amount}: ${res.error}`, false);
-        delete itemCategory[x.item.id];
-      }
-      let msg = own.length ? `${own.length} saved individually` : "";
-      if (account) {
-        const res = await post("/api/writer/review", {
-          payee_raw: row.payee_raw,
-          payee,
-          account,
-          make_rule: row.learn,
-          new_account: isNew[account]
-        });
-        if (failed(res)) return notify(res.error, false);
-        msg = [msg, `${res.resolved.length} → ${account}${row.learn ? " (rule saved)" : ""}`]
-          .filter(Boolean)
-          .join(", ");
-      }
-      notify(`${row.name}: ${msg}`);
+      const res = await ajax("/api/writer/review/batch", {
+        method: "POST",
+        body: JSON.stringify({
+          items: entries.map((e) => ({ ...e, new_account: isNew[e.account] }))
+        })
+      });
+      if (failed(res)) return notify(`Nothing saved: ${res.error}`, false);
+      const rules = res.rules?.length ? `, ${res.rules.length} rule(s) learned` : "";
+      notify(`${res.resolved.length} transactions categorized${rules}`);
+      entries.forEach((e) => e.id !== undefined && delete itemCategory[e.id]);
+      selected = {};
     } finally {
-      saving[row.payee_raw] = false;
+      busy.forEach((k) => (saving[k] = false));
       await load();
     }
+  }
+
+  const saveGroup = (row: Row) =>
+    runBatch(entriesFor(row, row.category, row.learn), [row.payee_raw]);
+
+  // Bulk: ticked groups get the bulk category, or their own category when the bulk one is empty.
+  let selected: Record<string, boolean> = {};
+  let bulkCategory = "";
+  let bulkLearn = false;
+
+  function applyBulk() {
+    const picked = rows.filter((r) => selected[r.payee_raw]);
+    const missing = picked.filter((r) => !bulkCategory.trim() && !r.category.trim());
+    if (missing.length)
+      return notify(`No category for ${missing.map((r) => r.payee_raw).join(", ")}`, false);
+    runBatch(
+      picked.flatMap((r) =>
+        entriesFor(r, bulkCategory.trim() || r.category, bulkCategory.trim() ? bulkLearn : r.learn)
+      ),
+      picked.map((r) => r.payee_raw)
+    );
   }
 
   async function saveItem(item: ReviewItem, account: string, row: Row) {
@@ -163,6 +183,13 @@
     (r) => !filter || (r.payee_raw || "").toLowerCase().includes(filter.toLowerCase())
   );
   $: openCount = _.sumBy(rows, (r) => r.count);
+  $: selectable = shown.filter((r) => r.reason === "uncategorized");
+  $: picked = rows.filter((r) => selected[r.payee_raw]);
+  $: allPicked = selectable.length > 0 && selectable.every((r) => selected[r.payee_raw]);
+  function toggleAll() {
+    const on = !allPicked;
+    selectable.forEach((r) => (selected[r.payee_raw] = on));
+  }
 
   onMount(load);
 </script>
@@ -201,6 +228,34 @@
         </div>
       </div>
 
+      {#if picked.length}
+        <div class="box py-2 px-3 mb-3">
+          <div class="field is-grouped is-align-items-center">
+            <p class="control">
+              <strong>{picked.length}</strong> groups, {_.sumBy(picked, (r) => r.count)} transactions
+            </p>
+            <p class="control is-expanded">
+              <input
+                class="input is-small"
+                list="review-categories"
+                placeholder="Category for all (empty: each row's own)"
+                bind:value={bulkCategory}
+                on:keydown={(e) => e.key === "Enter" && applyBulk()}
+              />
+            </p>
+            <label class="control checkbox is-size-7" title="Learn a rule for each ticked payee">
+              <input type="checkbox" bind:checked={bulkLearn} disabled={!bulkCategory.trim()} /> Learn
+            </label>
+            <p class="control">
+              <button class="button is-small is-link" on:click={applyBulk}>Apply</button>
+            </p>
+            <p class="control">
+              <button class="button is-small" on:click={() => (selected = {})}>Clear</button>
+            </p>
+          </div>
+        </div>
+      {/if}
+
       {#if rows.length === 0}
         <div class="notification is-success is-light">Nothing to review. 🎉</div>
       {/if}
@@ -208,7 +263,14 @@
       <table class="table is-fullwidth is-narrow is-hoverable">
         <thead>
           <tr>
-            <th />
+            <th
+              ><input
+                type="checkbox"
+                title="Select all shown"
+                checked={allPicked}
+                on:change={toggleAll}
+              /></th
+            >
             <th>Payee (as on statement)</th>
             <th class="has-text-right">Count</th>
             <th class="has-text-right">Total</th>
@@ -224,7 +286,10 @@
         <tbody>
           {#each shown as row (row.reason + row.payee_raw)}
             <tr>
-              <td>
+              <td class="is-flex is-align-items-center">
+                {#if row.reason === "uncategorized"}
+                  <input type="checkbox" bind:checked={selected[row.payee_raw]} />
+                {/if}
                 <button class="button is-small is-ghost" on:click={() => (row.open = !row.open)}>
                   <span class="icon is-small"
                     ><i class="fas {row.open ? 'fa-chevron-down' : 'fa-chevron-right'}" /></span
@@ -298,7 +363,7 @@
                         class="input is-small"
                         list="review-categories"
                         placeholder="Own category (empty: group's)"
-                        title="Save all saves this row here, the rest with the group category"
+                        title="Save all / Apply saves this row here, the rest with the group category"
                         bind:value={itemCategory[item.id]}
                       />
                     </td>
