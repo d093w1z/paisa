@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,4 +64,20 @@ func TestLedgerWriterProxyUnconfigured(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest("GET", "/api/writer/review", nil))
 	require.Equal(t, 503, w.Code)
+}
+
+func TestLedgerWriterProxyDown(t *testing.T) {
+	t.Setenv("LEDGER_WRITER_URL", "http://127.0.0.1:1")
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerLedgerWriterProxy(router)
+	paisa := httptest.NewServer(router)
+	defer paisa.Close()
+	res, err := http.Get(paisa.URL + "/api/writer/review")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	require.Equal(t, 502, res.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+	require.Contains(t, body["error"], "cannot reach ledger-writer")
 }

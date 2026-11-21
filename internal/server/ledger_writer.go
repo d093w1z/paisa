@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -38,6 +39,12 @@ func registerLedgerWriterProxy(router *gin.Engine) {
 			proxy.Director = func(r *http.Request) {
 				director(r)
 				r.Host = target.Host
+			}
+			proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				log.Errorf("ledger-writer proxy: %v", err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				_ = json.NewEncoder(w).Encode(gin.H{"error": "cannot reach ledger-writer at " + base + ": " + err.Error()})
 			}
 		}
 	}
