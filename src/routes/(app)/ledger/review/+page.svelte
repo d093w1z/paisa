@@ -18,6 +18,7 @@
     "Income:",
     "Assets:Transfers:",
     "Assets:Investments:",
+    "Assets:Receivables:",
     "Liabilities:EMI:"
   ];
 
