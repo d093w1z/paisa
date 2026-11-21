@@ -84,23 +84,52 @@
       : await ajax("/api/writer/review/:id", options, { id: String(id) });
   }
 
+  // Save all: rows given their own category (expanded view) are saved one by one, then the group
+  // category (if any) takes the rest, learning a rule when ticked.
   async function saveGroup(row: Row) {
     const account = row.category.trim();
-    if (!account) return notify("Pick a category first", false);
-    const isNew = confirmNew(account);
-    if (isNew === null) return;
+    const own = itemsOf(row)
+      .map((i) => ({ item: i, account: (itemCategory[i.id] || "").trim() }))
+      .filter((x) => x.account && x.item.reason === "uncategorized");
+    if (!account && own.length === 0) return notify("Pick a category first", false);
+
+    const isNew: Record<string, boolean> = {};
+    for (const a of _.uniq([...own.map((x) => x.account), ...(account ? [account] : [])])) {
+      const n = confirmNew(a);
+      if (n === null) return;
+      isNew[a] = n;
+    }
+    const payee = row.name.trim() || undefined;
     saving[row.payee_raw] = true;
-    const res = await post("/api/writer/review", {
-      payee_raw: row.payee_raw,
-      payee: row.name.trim() || undefined,
-      account,
-      make_rule: row.learn,
-      new_account: isNew
-    });
-    saving[row.payee_raw] = false;
-    if (failed(res)) return notify(res.error, false);
-    notify(`${row.name}: ${res.resolved.length} → ${account}${row.learn ? " (rule saved)" : ""}`);
-    await load();
+    try {
+      for (const x of own) {
+        const res = await post(
+          "/api/writer/review/:id",
+          { account: x.account, payee, new_account: isNew[x.account] },
+          x.item.id
+        );
+        if (failed(res)) return notify(`${x.item.date} ${x.item.amount}: ${res.error}`, false);
+        delete itemCategory[x.item.id];
+      }
+      let msg = own.length ? `${own.length} saved individually` : "";
+      if (account) {
+        const res = await post("/api/writer/review", {
+          payee_raw: row.payee_raw,
+          payee,
+          account,
+          make_rule: row.learn,
+          new_account: isNew[account]
+        });
+        if (failed(res)) return notify(res.error, false);
+        msg = [msg, `${res.resolved.length} → ${account}${row.learn ? " (rule saved)" : ""}`]
+          .filter(Boolean)
+          .join(", ");
+      }
+      notify(`${row.name}: ${msg}`);
+    } finally {
+      saving[row.payee_raw] = false;
+      await load();
+    }
   }
 
   async function saveItem(item: ReviewItem, account: string, row: Row) {
@@ -268,7 +297,8 @@
                       <input
                         class="input is-small"
                         list="review-categories"
-                        placeholder="Category for just this one"
+                        placeholder="Own category (empty: group's)"
+                        title="Save all saves this row here, the rest with the group category"
                         bind:value={itemCategory[item.id]}
                       />
                     </td>
