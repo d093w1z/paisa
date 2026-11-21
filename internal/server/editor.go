@@ -60,7 +60,7 @@ func GetFile(file LedgerFile) gin.H {
 	if err != nil {
 		return gin.H{"message": "Invalid file name"}
 	}
-	return gin.H{"file": readLedgerFile(dir, filepath.Join(dir, file.Name), isGitHistoryAvailable())}
+	return gin.H{"file": readLedgerFile(dir, filePath, isGitHistoryAvailable())}
 }
 
 func DeleteBackups(file LedgerFile) gin.H {
@@ -81,7 +81,7 @@ func DeleteBackups(file LedgerFile) gin.H {
 		}
 	}
 
-	return gin.H{"file": readLedgerFileWithVersions(dir, filepath.Join(dir, file.Name), isGitHistoryAvailable())}
+	return gin.H{"file": readLedgerFileWithVersions(dir, filePath, isGitHistoryAvailable())}
 }
 
 // isGitHistoryAvailable reports whether git-based history is enabled and a
