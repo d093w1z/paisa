@@ -14,7 +14,7 @@
   } from "$lib/utils";
   import { toast } from "bulma-toast";
   import _ from "lodash";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
 
   const CATEGORY_ROOTS = [
     "Expenses:",
@@ -25,9 +25,18 @@
     "Liabilities:EMI:"
   ];
 
-  type Row = ReviewGroup & { name: string; category: string; learn: boolean; open: boolean };
+  // single: one transaction (the "Each transaction" view); date: the group's newest transaction
+  type Row = ReviewGroup & {
+    name: string;
+    category: string;
+    learn: boolean;
+    open: boolean;
+    single?: boolean;
+    date: string;
+  };
 
   let rows: Row[] = [];
+  let txnRows: Row[] = [];
   let items: ReviewItem[] = [];
   let stats: ReviewStats | null = null;
   let accounts: string[] = [];
@@ -60,10 +69,70 @@
     categories = accounts.filter((a) => CATEGORY_ROOTS.some((r) => a.startsWith(r)));
     const byPayee = _.groupBy(items, (i) => (i.payee_raw || "").toLowerCase());
     rows = groups.items.map((g) => {
-      const first = byPayee[(g.payee_raw || "").toLowerCase()]?.[0];
-      return { ...g, name: first?.payee || g.payee_raw, category: "", learn: true, open: false };
+      const its = byPayee[(g.payee_raw || "").toLowerCase()] || [];
+      const date = _.max(its.map((i) => i.date)) || "";
+      return {
+        ...g,
+        name: its[0]?.payee || g.payee_raw,
+        category: "",
+        learn: true,
+        open: false,
+        date
+      };
     });
+    txnRows = items.map((i) => ({
+      payee_raw: i.payee_raw,
+      id: i.id,
+      count: 1,
+      total: i.amount || "0",
+      reason: i.reason,
+      ids: [i.id],
+      accounts: [i.account],
+      name: i.payee || i.payee_raw,
+      category: "",
+      learn: false,
+      open: false,
+      single: true,
+      date: i.date
+    }));
   }
+
+  // View and sort live in the browser only (per viewer); the queue itself comes from the writer.
+  const SORTS: Record<string, [string, (r: Row) => unknown, "asc" | "desc"]> = {
+    count: ["Most transactions", () => 0, "asc"], // the writer's order: count, then amount
+    amount: ["Largest amount", (r) => Math.abs(Number(r.total)), "desc"],
+    newest: ["Newest", (r) => r.date, "desc"],
+    oldest: ["Oldest", (r) => r.date, "asc"],
+    payee: ["Payee A–Z", (r) => (r.payee_raw || "").toLowerCase(), "asc"]
+  };
+  const saved = (k: string, d: string) => {
+    try {
+      return localStorage.getItem("review." + k) || d;
+    } catch {
+      return d;
+    }
+  };
+  let view = saved("view", "payee");
+  let sort = saved("sort", "count");
+  let direction = "all";
+  $: try {
+    localStorage.setItem("review.view", view);
+    localStorage.setItem("review.sort", sort);
+  } catch {
+    /* private window: not remembered */
+  }
+
+  // Queue and Find are tabs, each keeping its own scroll position.
+  let tab = typeof location !== "undefined" && location.hash === "#recategorize" ? "find" : "queue";
+  const scrollOf: Record<string, number> = {};
+  async function show(t: string) {
+    scrollOf[tab] = window.scrollY;
+    tab = t;
+    await tick();
+    window.scrollTo(0, scrollOf[t] ?? 0);
+  }
+
+  const keyOf = (r: Row) => (r.single ? `#${r.id}` : r.payee_raw);
 
   function confirmNew(account: string): boolean | null {
     if (accounts.includes(account)) return false;
@@ -101,6 +170,10 @@
   // (if any) for the rest. The writer applies them in order, in one commit.
   function entriesFor(row: Row, account: string, learn: boolean): Entry[] {
     const payee = row.name.trim() || undefined;
+    if (row.single)
+      return account.trim()
+        ? [{ id: row.id, account: account.trim(), payee, make_rule: learn }]
+        : [];
     const own: Entry[] = itemsOf(row)
       .filter((i) => i.reason === "uncategorized" && (itemCategory[i.id] || "").trim())
       .map((i) => ({ id: i.id, account: itemCategory[i.id].trim(), payee }));
@@ -135,8 +208,7 @@
     }
   }
 
-  const saveGroup = (row: Row) =>
-    runBatch(entriesFor(row, row.category, row.learn), [row.payee_raw]);
+  const saveGroup = (row: Row) => runBatch(entriesFor(row, row.category, row.learn), [keyOf(row)]);
 
   // Bulk: ticked groups get the bulk category, or their own category when the bulk one is empty.
   let selected: Record<string, boolean> = {};
@@ -144,7 +216,6 @@
   let bulkLearn = false;
 
   function applyBulk() {
-    const picked = rows.filter((r) => selected[r.payee_raw]);
     const missing = picked.filter((r) => !bulkCategory.trim() && !r.category.trim());
     if (missing.length)
       return notify(`No category for ${missing.map((r) => r.payee_raw).join(", ")}`, false);
@@ -152,7 +223,7 @@
       picked.flatMap((r) =>
         entriesFor(r, bulkCategory.trim() || r.category, bulkCategory.trim() ? bulkLearn : r.learn)
       ),
-      picked.map((r) => r.payee_raw)
+      picked.map(keyOf)
     );
   }
 
@@ -179,21 +250,36 @@
   }
 
   const itemsOf = (row: Row) =>
-    items.filter((i) => (i.payee_raw || "").toLowerCase() === (row.payee_raw || "").toLowerCase());
+    row.single
+      ? items.filter((i) => i.id === row.id)
+      : items.filter(
+          (i) => (i.payee_raw || "").toLowerCase() === (row.payee_raw || "").toLowerCase()
+        );
 
   let itemCategory: Record<number, string> = {};
 
-  $: shown = rows.filter(
-    (r) => !filter || (r.payee_raw || "").toLowerCase().includes(filter.toLowerCase())
+  $: source = view === "txn" ? txnRows : rows;
+  $: shown = _.orderBy(
+    source.filter(
+      (r) =>
+        (!filter ||
+          [r.payee_raw, r.name].some((x) =>
+            (x || "").toLowerCase().includes(filter.toLowerCase())
+          )) &&
+        (direction === "all" || Number(r.total) < 0 === (direction === "out"))
+    ),
+    [SORTS[sort][1]],
+    [SORTS[sort][2]]
   );
   $: openCount = _.sumBy(rows, (r) => r.count);
   $: selectable = shown.filter((r) => r.reason === "uncategorized");
-  $: picked = rows.filter((r) => selected[r.payee_raw]);
-  $: allPicked = selectable.length > 0 && selectable.every((r) => selected[r.payee_raw]);
+  $: picked = source.filter((r) => selected[keyOf(r)]);
+  $: allPicked = selectable.length > 0 && selectable.every((r) => selected[keyOf(r)]);
   function toggleAll() {
     const on = !allPicked;
-    selectable.forEach((r) => (selected[r.payee_raw] = on));
+    selectable.forEach((r) => (selected[keyOf(r)] = on));
   }
+  $: view, (selected = {}); // ticks don't carry between views
 
   // Find & re-categorize: any transaction, categorized or not (not hand-split ones).
   let find = { q: "", account: "", from: "", to: "" };
@@ -266,6 +352,23 @@
         <p><strong>Review queue unavailable:</strong> {error}</p>
       </div>
     {:else}
+      <div class="tabs is-small mb-3 review-tabs">
+        <ul>
+          <li class:is-active={tab === "queue"}>
+            <a href="#queue" on:click|preventDefault={() => show("queue")}
+              >Review queue ({openCount})</a
+            >
+          </li>
+          <li class:is-active={tab === "find"}>
+            <a href="#recategorize" on:click|preventDefault={() => show("find")}
+              >Find &amp; re-categorize</a
+            >
+          </li>
+        </ul>
+      </div>
+    {/if}
+
+    {#if !error && tab === "queue"}
       <div class="level">
         <div class="level-left">
           <div class="level-item">
@@ -276,6 +379,32 @@
           </div>
         </div>
         <div class="level-right">
+          <div class="level-item">
+            <div class="select is-small">
+              <select bind:value={view} title="Show">
+                <option value="payee">By payee</option>
+                <option value="txn">Each transaction</option>
+              </select>
+            </div>
+          </div>
+          <div class="level-item">
+            <div class="select is-small">
+              <select bind:value={sort} title="Sort">
+                {#each Object.entries(SORTS) as [k, [label]]}
+                  <option value={k}>{label}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <div class="level-item">
+            <div class="select is-small">
+              <select bind:value={direction} title="Money in or out">
+                <option value="all">In and out</option>
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+              </select>
+            </div>
+          </div>
           <div class="level-item">
             <input class="input is-small" placeholder="Filter payee" bind:value={filter} />
           </div>
@@ -323,7 +452,8 @@
         <div class="box py-2 px-3 mb-3">
           <div class="field is-grouped is-grouped-multiline is-align-items-center">
             <p class="control">
-              <strong>{picked.length}</strong> groups, {_.sumBy(picked, (r) => r.count)} transactions
+              <strong>{picked.length}</strong>
+              {view === "txn" ? "rows" : "groups"}, {_.sumBy(picked, (r) => r.count)} transactions
             </p>
             <p class="control is-expanded">
               <input
@@ -375,24 +505,36 @@
           </tr>
         </thead>
         <tbody>
-          {#each shown as row (row.reason + row.payee_raw)}
+          {#each shown as row (row.reason + keyOf(row))}
             <tr>
-              <td class="is-flex is-align-items-center">
-                {#if row.reason === "uncategorized"}
-                  <input type="checkbox" bind:checked={selected[row.payee_raw]} />
-                {/if}
-                <button class="button is-small is-ghost" on:click={() => (row.open = !row.open)}>
-                  <span class="icon is-small"
-                    ><i class="fas {row.open ? 'fa-chevron-down' : 'fa-chevron-right'}" /></span
-                  >
-                </button>
+              <td class="is-vcentered">
+                <!-- flex on the td itself would stop it being a table cell (its border ends above the row's) -->
+                <div class="is-flex is-align-items-center">
+                  {#if row.reason === "uncategorized"}
+                    <input type="checkbox" bind:checked={selected[keyOf(row)]} />
+                  {/if}
+                  {#if !row.single || row.reason !== "uncategorized"}
+                    <button
+                      class="button is-small is-ghost"
+                      on:click={() => (row.open = !row.open)}
+                    >
+                      <span class="icon is-small"
+                        ><i class="fas {row.open ? 'fa-chevron-down' : 'fa-chevron-right'}" /></span
+                      >
+                    </button>
+                  {/if}
+                </div>
               </td>
               <td class="grow">
                 <strong>{row.payee_raw || "—"}</strong>
                 {#if row.reason !== "uncategorized"}<span class="tag is-warning is-light ml-1"
                     >{row.reason}</span
                   >{/if}
-                <br /><span class="is-size-7 has-text-grey">{row.accounts.join(", ")}</span>
+                <br /><span class="is-size-7 has-text-grey"
+                  >{#if row.single}{row.date} ·
+                  {/if}{row.accounts.join(", ")}{#if row.single}<br />{itemsOf(row)[0]?.raw ||
+                      ""}{/if}</span
+                >
               </td>
               <td class="has-text-right"
                 >{row.count}<span class="is-hidden-tablet has-text-grey"> txns</span></td
@@ -426,7 +568,7 @@
                 <td>
                   <button
                     class="button is-small is-link"
-                    class:is-loading={saving[row.payee_raw]}
+                    class:is-loading={saving[keyOf(row)]}
                     on:click={() => saveGroup(row)}
                     >Save {row.count > 1 ? `all ${row.count}` : ""}</button
                   >
@@ -486,122 +628,132 @@
       </table>
     {/if}
 
-    <h2 class="title is-5 mt-6" id="recategorize">Find &amp; re-categorize</h2>
-    <p class="is-size-7 has-text-grey mb-3">
-      Change the category of any transaction, including ones already categorized. Search by payee,
-      then tick rows and give one category, or type a category on individual rows.
-    </p>
-    <div class="field is-grouped is-grouped-multiline">
-      <p class="control is-expanded">
-        <input
-          class="input is-small"
-          placeholder="Payee or statement text (e.g. sanika, amazon)"
-          bind:value={find.q}
-          on:keydown={(e) => e.key === "Enter" && search()}
-        />
+    {#if !error && tab === "find"}
+      <p class="is-size-7 has-text-grey mb-3">
+        Change the category of any transaction, including ones already categorized. Search by payee,
+        then tick rows and give one category, or type a category on individual rows.
       </p>
-      <p class="control">
-        <input
-          class="input is-small"
-          list="review-categories"
-          placeholder="Account or category"
-          bind:value={find.account}
-          on:keydown={(e) => e.key === "Enter" && search()}
-        />
-      </p>
-      <p class="control"><input class="input is-small" type="date" bind:value={find.from} /></p>
-      <p class="control"><input class="input is-small" type="date" bind:value={find.to} /></p>
-      <p class="control">
-        <button class="button is-small is-link" on:click={search}>Search</button>
-      </p>
-    </div>
+      <div class="field is-grouped is-grouped-multiline">
+        <p class="control is-expanded">
+          <input
+            class="input is-small"
+            placeholder="Payee or statement text (e.g. sanika, amazon)"
+            bind:value={find.q}
+            on:keydown={(e) => e.key === "Enter" && search()}
+          />
+        </p>
+        <p class="control">
+          <input
+            class="input is-small"
+            list="review-categories"
+            placeholder="Account or category"
+            bind:value={find.account}
+            on:keydown={(e) => e.key === "Enter" && search()}
+          />
+        </p>
+        <p class="control"><input class="input is-small" type="date" bind:value={find.from} /></p>
+        <p class="control"><input class="input is-small" type="date" bind:value={find.to} /></p>
+        <p class="control">
+          <button class="button is-small is-link" on:click={search}>Search</button>
+        </p>
+      </div>
 
-    {#if searched}
-      {#if found.length === 0}
-        <div class="notification is-light">No transactions match.</div>
-      {:else}
-        <div class="box py-2 px-3 mb-3">
-          <div class="field is-grouped is-grouped-multiline is-align-items-center">
-            <p class="control">
-              <strong>{pickedTxns}</strong> of {found.length} ticked, total
-              {formatCurrency(
-                _.sumBy(
-                  found.filter((t) => pick[t.id]),
-                  (t) => Number(t.amount)
-                ),
-                2
-              )}
-            </p>
-            <p class="control is-expanded">
-              <input
-                class="input is-small"
-                list="review-categories"
-                placeholder="New category for ticked rows"
-                bind:value={findCategory}
-              />
-            </p>
-            <p class="control">
-              <input
-                class="input is-small"
-                placeholder="Rename payee (optional)"
-                bind:value={findPayee}
-              />
-            </p>
-            <p class="control">
-              <button class="button is-small is-link" on:click={recategorize}>Re-categorize</button>
-            </p>
-          </div>
-        </div>
-        <table class="table is-fullwidth is-narrow is-hoverable is-size-7 stack">
-          <thead>
-            <tr>
-              <th
-                ><input
-                  type="checkbox"
-                  checked={allTxnsPicked}
-                  on:change={() => {
-                    const on = !allTxnsPicked;
-                    found.forEach((t) => (pick[t.id] = on));
-                  }}
-                /></th
-              >
-              <th>Date</th>
-              <th>Payee</th>
-              <th>Account</th>
-              <th class="has-text-right">Amount</th>
-              <th>Category</th>
-              <th>New category (this row)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each found as t (t.id)}
-              <tr>
-                <td><input type="checkbox" bind:checked={pick[t.id]} /></td>
-                <td>{t.date}</td>
-                <td class="grow" title={t.raw || ""}>{t.payee}</td>
-                <td class="is-hidden-mobile">{t.account}</td>
-                <td class="has-text-right is-family-monospace"
-                  >{formatCurrency(Number(t.amount), 2)}</td
+      {#if searched}
+        {#if found.length === 0}
+          <div class="notification is-light">No transactions match.</div>
+        {:else}
+          <div class="box py-2 px-3 mb-3">
+            <div class="field is-grouped is-grouped-multiline is-align-items-center">
+              <p class="control">
+                <strong>{pickedTxns}</strong> of {found.length} ticked, total
+                {formatCurrency(
+                  _.sumBy(
+                    found.filter((t) => pick[t.id]),
+                    (t) => Number(t.amount)
+                  ),
+                  2
+                )}
+              </p>
+              <p class="control is-expanded">
+                <input
+                  class="input is-small"
+                  list="review-categories"
+                  placeholder="New category for ticked rows"
+                  bind:value={findCategory}
+                />
+              </p>
+              <p class="control">
+                <input
+                  class="input is-small"
+                  placeholder="Rename payee (optional)"
+                  bind:value={findPayee}
+                />
+              </p>
+              <p class="control">
+                <button class="button is-small is-link" on:click={recategorize}
+                  >Re-categorize</button
                 >
-                <td class="full has-text-grey">{t.category}</td>
-                <td class="full">
-                  <input
-                    class="input is-small"
-                    list="review-categories"
-                    placeholder={pick[t.id] && findCategory ? findCategory : ""}
-                    bind:value={newCategory[t.id]}
-                  />
-                </td>
+              </p>
+            </div>
+          </div>
+          <table class="table is-fullwidth is-narrow is-hoverable is-size-7 stack">
+            <thead>
+              <tr>
+                <th
+                  ><input
+                    type="checkbox"
+                    checked={allTxnsPicked}
+                    on:change={() => {
+                      const on = !allTxnsPicked;
+                      found.forEach((t) => (pick[t.id] = on));
+                    }}
+                  /></th
+                >
+                <th>Date</th>
+                <th>Payee</th>
+                <th>Account</th>
+                <th class="has-text-right">Amount</th>
+                <th>Category</th>
+                <th>New category (this row)</th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {#each found as t (t.id)}
+                <tr>
+                  <td><input type="checkbox" bind:checked={pick[t.id]} /></td>
+                  <td>{t.date}</td>
+                  <td class="grow" title={t.raw || ""}>{t.payee}</td>
+                  <td class="is-hidden-mobile">{t.account}</td>
+                  <td class="has-text-right is-family-monospace"
+                    >{formatCurrency(Number(t.amount), 2)}</td
+                  >
+                  <td class="full has-text-grey">{t.category}</td>
+                  <td class="full">
+                    <input
+                      class="input is-small"
+                      list="review-categories"
+                      placeholder={pick[t.id] && findCategory ? findCategory : ""}
+                      bind:value={newCategory[t.id]}
+                    />
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
       {/if}
     {/if}
   </div>
 </section>
 
 <style>
+  /* the tabs stay on screen, so switching never needs a scroll to the top */
+  .review-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--background);
+  }
   /* Phones: each table row becomes a stacked card instead of overflowing sideways. */
   @media screen and (max-width: 768px) {
     .stack thead {
