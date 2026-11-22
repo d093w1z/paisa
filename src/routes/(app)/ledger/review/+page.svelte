@@ -6,6 +6,8 @@
     formatCurrency,
     type ReviewGroup,
     type ReviewItem,
+    type ReviewList,
+    type ReviewStats,
     type ReviewResult,
     type WriterError,
     type WriterTxn
@@ -27,6 +29,7 @@
 
   let rows: Row[] = [];
   let items: ReviewItem[] = [];
+  let stats: ReviewStats | null = null;
   let accounts: string[] = [];
   let categories: string[] = [];
   let error = "";
@@ -52,11 +55,11 @@
       return;
     }
     error = "";
-    items = all as ReviewItem[];
+    ({ items, stats } = all as ReviewList<ReviewItem>);
     accounts = accts;
     categories = accounts.filter((a) => CATEGORY_ROOTS.some((r) => a.startsWith(r)));
     const byPayee = _.groupBy(items, (i) => (i.payee_raw || "").toLowerCase());
-    rows = groups.map((g) => {
+    rows = groups.items.map((g) => {
       const first = byPayee[(g.payee_raw || "").toLowerCase()]?.[0];
       return { ...g, name: first?.payee || g.payee_raw, category: "", learn: true, open: false };
     });
@@ -283,6 +286,38 @@
           </div>
         </div>
       </div>
+
+      {#if stats && stats.count}
+        <div class="box py-3 px-3 mb-3">
+          <div class="columns is-mobile is-multiline is-variable is-2 mb-0">
+            {#each [["Uncategorized out", stats.money_out], ["Uncategorized in", stats.money_in], ["Net", stats.net], ["Average", stats.average], ["Median", stats.median], ["Largest out", stats.largest_out], ["Largest in", stats.largest_in]] as [label, value]}
+              <div class="column is-half-mobile is-one-quarter-tablet is-narrow-desktop">
+                <p class="heading mb-0">{label}</p>
+                <p class="has-text-weight-semibold">{formatCurrency(Number(value), 2)}</p>
+              </div>
+            {/each}
+            <div class="column is-half-mobile is-one-quarter-tablet is-narrow-desktop">
+              <p class="heading mb-0">Dates</p>
+              <p class="has-text-weight-semibold">{stats.oldest} – {stats.newest}</p>
+            </div>
+          </div>
+          <details>
+            <summary class="is-size-7">By account ({Object.keys(stats.by_account).length})</summary>
+            <table class="table is-narrow is-fullwidth is-size-7 mt-2">
+              <tbody>
+                {#each Object.entries(stats.by_account) as [account, a]}
+                  <tr>
+                    <td class="is-family-monospace">{account}</td>
+                    <td class="has-text-right">{a.count}</td>
+                    <td class="has-text-right">−{formatCurrency(Number(a.out), 2)}</td>
+                    <td class="has-text-right">+{formatCurrency(Number(a.in), 2)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </details>
+        </div>
+      {/if}
 
       {#if picked.length}
         <div class="box py-2 px-3 mb-3">

@@ -586,6 +586,28 @@ export interface ReviewGroup {
   accounts: string[];
 }
 
+export interface ReviewStats {
+  count: number;
+  payees: number;
+  money_out: string;
+  money_in: string;
+  net: string;
+  total_abs: string;
+  average: string;
+  median: string;
+  largest_out: string;
+  largest_in: string;
+  oldest: string | null;
+  newest: string | null;
+  by_reason: Record<string, number>;
+  by_account: Record<string, { count: number; out: string; in: string }>;
+}
+
+export interface ReviewList<T> {
+  stats: ReviewStats;
+  items: T[];
+}
+
 export interface ReviewItem {
   id: number;
   reason: string;
@@ -917,11 +939,11 @@ export function ajax(
 export function ajax(
   route: "/api/writer/review?group=payee",
   options?: RequestOptions
-): Promise<ReviewGroup[] | WriterError>;
+): Promise<ReviewList<ReviewGroup> | WriterError>;
 export function ajax(
   route: "/api/writer/review",
   options?: RequestOptions
-): Promise<ReviewItem[] | ReviewResult | WriterError>;
+): Promise<ReviewList<ReviewItem> | ReviewResult | WriterError>;
 export function ajax(
   route: "/api/writer/review/:id",
   options?: RequestOptions,
