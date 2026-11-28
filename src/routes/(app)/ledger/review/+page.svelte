@@ -602,6 +602,16 @@
                         on:click={() => unknownAccount(item, "void")}>Dismiss</button
                       >
                     </td>
+                  {:else if item.reason === "parse_failed"}
+                    <td colspan="3" class="full"
+                      >Message not understood. Dismiss it if it isn't a transaction.</td
+                    >
+                    <td>
+                      <button
+                        class="button is-small is-danger is-light"
+                        on:click={() => unknownAccount(item, "void")}>Dismiss</button
+                      >
+                    </td>
                   {:else}
                     <td colspan="2" class="full">
                       <input
