@@ -2,8 +2,10 @@ package server
 
 import (
 	"github.com/ananthakumaran/paisa/internal/cache"
+	"github.com/ananthakumaran/paisa/internal/config"
 	"github.com/ananthakumaran/paisa/internal/model"
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +21,12 @@ func Sync(db *gorm.DB, request SyncRequest) gin.H {
 	warnings := make([]string, 0)
 
 	if request.Journal {
+		if config.GetConfig().GitHistory.Enabled == config.Yes {
+			if err := ensureGitCommitted("paisa: auto-commit external changes"); err != nil {
+				log.Warn("git history: auto-commit failed: ", err)
+			}
+		}
+
 		message, err := model.SyncJournal(db)
 		if err != nil {
 			return gin.H{"success": false, "message": message, "warnings": warnings}

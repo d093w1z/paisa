@@ -17,7 +17,9 @@ const config = {
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:7500"
+        // PAISA_API=https://paisa.example.com npm run dev: try the UI against a running Paisa
+        target: process.env.PAISA_API || "http://localhost:7500",
+        changeOrigin: true
       }
     },
     fs: {

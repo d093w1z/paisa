@@ -19,10 +19,15 @@ import (
 )
 
 type LedgerFile struct {
-	Name      string   `json:"name"`
-	Content   string   `json:"content"`
-	Versions  []string `json:"versions"`
-	Operation string   `json:"operation"`
+	Name       string   `json:"name"`
+	Content    string   `json:"content"`
+	Versions   []string `json:"versions"`
+	Operation  string   `json:"operation"`
+	GitEnabled bool     `json:"git_enabled"`
+	// Message is an optional custom git commit message for this save. Only
+	// meaningful when git history is enabled; ignored otherwise. When
+	// empty, a default "paisa: update <file>" message is used.
+	Message string `json:"message"`
 }
 
 func GetFiles(db *gorm.DB) gin.H {
@@ -39,8 +44,10 @@ func GetFiles(db *gorm.DB) gin.H {
 	dir := filepath.Dir(path)
 	paths, _ := doublestar.FilepathGlob(dir + "/**/*" + filepath.Ext(path))
 
+	gitEnabled := isGitHistoryAvailable()
+
 	for _, path = range paths {
-		files = append(files, readLedgerFileWithVersions(dir, path))
+		files = append(files, readLedgerFileWithVersions(dir, path, gitEnabled))
 	}
 
 	return gin.H{"files": files, "accounts": accounts, "payees": payees, "commodities": commodities}
@@ -53,7 +60,7 @@ func GetFile(file LedgerFile) gin.H {
 	if err != nil {
 		return gin.H{"message": "Invalid file name"}
 	}
-	return gin.H{"file": readLedgerFile(dir, filePath)}
+	return gin.H{"file": readLedgerFile(dir, filePath, isGitHistoryAvailable())}
 }
 
 func DeleteBackups(file LedgerFile) gin.H {
@@ -74,7 +81,15 @@ func DeleteBackups(file LedgerFile) gin.H {
 		}
 	}
 
-	return gin.H{"file": readLedgerFileWithVersions(dir, filePath)}
+	return gin.H{"file": readLedgerFileWithVersions(dir, filePath, isGitHistoryAvailable())}
+}
+
+// isGitHistoryAvailable reports whether git-based history is enabled and a
+// repository is currently reachable for the journal directory, so the
+// editor UI knows whether to show the legacy backup-file version list or
+// point the user at the git history page instead.
+func isGitHistoryAvailable() bool {
+	return resolveActiveRepo(false) != nil
 }
 
 func SaveFile(db *gorm.DB, file LedgerFile) gin.H {
@@ -109,6 +124,12 @@ func SaveFile(db *gorm.DB, file LedgerFile) gin.H {
 		return gin.H{"errors": errors, "saved": false, "message": "File does not exist"}
 	}
 
+	// When git history is enabled and a repo is available, git commits
+	// supersede the filesystem backup mechanism; fall back to writing a
+	// backup file whenever git isn't usable this run, so history is never
+	// silently lost.
+	gitRepo := openGitRepo()
+
 	var perm os.FileMode = 0644
 	if err == nil {
 		if file.Operation == "create" {
@@ -116,16 +137,19 @@ func SaveFile(db *gorm.DB, file LedgerFile) gin.H {
 		}
 
 		perm = fileStat.Mode().Perm()
-		existingContent, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Warn(err)
-			return gin.H{"errors": errors, "saved": false, "message": "Failed to read file"}
-		}
 
-		err = os.WriteFile(backupPath, existingContent, perm)
-		if err != nil {
-			log.Warn(err)
-			return gin.H{"errors": errors, "saved": false, "message": "Failed to create backup"}
+		if gitRepo == nil {
+			existingContent, err := os.ReadFile(filePath)
+			if err != nil {
+				log.Warn(err)
+				return gin.H{"errors": errors, "saved": false, "message": "Failed to read file"}
+			}
+
+			err = os.WriteFile(backupPath, existingContent, perm)
+			if err != nil {
+				log.Warn(err)
+				return gin.H{"errors": errors, "saved": false, "message": "Failed to create backup"}
+			}
 		}
 	}
 
@@ -135,9 +159,23 @@ func SaveFile(db *gorm.DB, file LedgerFile) gin.H {
 		return gin.H{"errors": errors, "saved": false, "message": "Failed to write file"}
 	}
 
+	if gitRepo != nil {
+		commitMessage := file.Message
+		if commitMessage == "" {
+			commitMessage = "paisa: update " + file.Name
+		}
+
+		_, changed, commitErr := gitRepo.StageAndCommitAll(dir, commitMessage, gitAuthorFromConfig())
+		if commitErr != nil {
+			log.Warn("git history: commit failed: ", commitErr)
+		} else if changed && config.GetConfig().GitHistory.AutoPush == config.Yes {
+			go attemptAutoPush(gitRepo)
+		}
+	}
+
 	Sync(db, SyncRequest{Journal: true})
 
-	return gin.H{"errors": errors, "saved": true, "file": readLedgerFileWithVersions(dir, filePath)}
+	return gin.H{"errors": errors, "saved": true, "file": readLedgerFileWithVersions(dir, filePath, gitRepo != nil)}
 }
 
 func ValidateFile(file LedgerFile) gin.H {
@@ -177,7 +215,7 @@ func validateFile(file LedgerFile) ([]ledger.LedgerFileError, string, error) {
 	return ledger.Cli().ValidateFile(tmpfile.Name())
 }
 
-func readLedgerFile(dir string, path string) *LedgerFile {
+func readLedgerFile(dir string, path string, gitEnabled bool) *LedgerFile {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatal(err)
@@ -186,12 +224,13 @@ func readLedgerFile(dir string, path string) *LedgerFile {
 	name, err := filepath.Rel(dir, path)
 
 	return &LedgerFile{
-		Name:    name,
-		Content: string(content),
+		Name:       name,
+		Content:    string(content),
+		GitEnabled: gitEnabled,
 	}
 }
 
-func readLedgerFileWithVersions(dir string, path string) *LedgerFile {
+func readLedgerFileWithVersions(dir string, path string, gitEnabled bool) *LedgerFile {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatal(err)
@@ -214,8 +253,9 @@ func readLedgerFileWithVersions(dir string, path string) *LedgerFile {
 	}
 
 	return &LedgerFile{
-		Name:     name,
-		Content:  string(content),
-		Versions: versionPaths,
+		Name:       name,
+		Content:    string(content),
+		Versions:   versionPaths,
+		GitEnabled: gitEnabled,
 	}
 }

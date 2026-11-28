@@ -41,6 +41,8 @@ func Build(db *gorm.DB, enableCompression bool) *gin.Engine {
 
 	router.Use(TokenAuthMiddleware())
 
+	registerLedgerWriterProxy(router)
+
 	router.GET("/robots.txt", func(c *gin.Context) {
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("User-agent: *\nDisallow: /"))
 	})
@@ -280,6 +282,112 @@ func Build(db *gorm.DB, enableCompression bool) *gin.Engine {
 		}
 
 		c.JSON(200, SaveFile(db, ledgerFile))
+	})
+
+	router.GET("/api/git/status", func(c *gin.Context) {
+		c.JSON(200, GitStatus())
+	})
+
+	router.POST("/api/git/init", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		var req struct {
+			Mode string `json:"mode"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, GitInit(req.Mode))
+	})
+
+	router.GET("/api/git/history", func(c *gin.Context) {
+		c.JSON(200, GitHistoryForFile(c.Query("file")))
+	})
+
+	router.GET("/api/git/content", func(c *gin.Context) {
+		c.JSON(200, GitContentAt(c.Query("file"), c.Query("commit")))
+	})
+
+	router.POST("/api/git/push", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		c.JSON(200, GitPush())
+	})
+
+	router.POST("/api/git/oauth/start", func(c *gin.Context) {
+		var req struct {
+			Provider string `json:"provider"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, GitOAuthStart(req.Provider))
+	})
+
+	router.GET("/api/git/oauth/poll", func(c *gin.Context) {
+		c.JSON(200, GitOAuthPoll(c.Query("session_id")))
+	})
+
+	router.POST("/api/git/token/session", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		var req struct {
+			Provider string `json:"provider"`
+			Token    string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, GitStartTokenSession(req.Provider, req.Token))
+	})
+
+	router.GET("/api/git/repos", func(c *gin.Context) {
+		c.JSON(200, GitListRepos(c.Query("session_id")))
+	})
+
+	router.POST("/api/git/repos/select", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		var req struct {
+			SessionID string `json:"session_id"`
+			CloneURL  string `json:"clone_url"`
+			Branch    string `json:"branch"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, GitSelectRepo(req.SessionID, req.CloneURL, req.Branch))
+	})
+
+	router.POST("/api/git/token", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		var req struct {
+			URL    string `json:"url"`
+			Branch string `json:"branch"`
+			Token  string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, GitSaveToken(req.URL, req.Branch, req.Token))
+	})
+
+	router.POST("/api/git/disconnect", func(c *gin.Context) {
+		if gitReadonlyResponse(c) {
+			return
+		}
+		c.JSON(200, GitDisconnect())
 	})
 
 	router.GET("/api/sheets/files", func(c *gin.Context) {

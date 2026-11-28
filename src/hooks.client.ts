@@ -76,6 +76,9 @@ export const handleError: HandleClientError = async ({ error, status, message })
 };
 
 function formatError(error: any) {
+  if (error == null) {
+    return "Unknown error";
+  }
   if (error.stack) {
     return error.stack;
   }
@@ -112,5 +115,7 @@ window.addEventListener("unhandledrejection", (event) => {
   displayError(event.reason);
 });
 window.addEventListener("error", (event) => {
+  // events without an error object (a blocked third-party script, "ResizeObserver loop ...") aren't app crashes
+  if (event.error == null) return;
   displayError(event.error);
 });
